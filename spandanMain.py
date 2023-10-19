@@ -31,7 +31,6 @@ modePathList = os.listdir(folderModePath)
 imgModeList = []
 for path in modePathList:
     imgModeList.append(cv2.imread(os.path.join(folderModePath, path)))
-# print(len(imgModeList))
 
 # Load the encoding file
 print("Loading Encode File ...")
@@ -39,7 +38,6 @@ file = open('EncodeFile.p', 'rb')
 encodeListKnownWithIds = pickle.load(file)
 file.close()
 encodeListKnown, studentIds = encodeListKnownWithIds
-# print(studentIds)
 print("Encode File Loaded")
 
 modeType = 0
@@ -63,26 +61,46 @@ while True:
         for encodeFace, faceLoc in zip(encodeCurFrame, faceCurFrame):
             matches = face_recognition.compare_faces(encodeListKnown, encodeFace)
             faceDis = face_recognition.face_distance(encodeListKnown, encodeFace)
-            # print("matches", matches)
-            # print("faceDis", faceDis)
 
             matchIndex = np.argmin(faceDis)
-            # print("Match Index", matchIndex)
 
             if matches[matchIndex]:
-                # print("Known Face Detected")
-                # print(studentIds[matchIndex])
                 y1, x2, y2, x1 = faceLoc
                 y1, x2, y2, x1 = y1 * 4, x2 * 4, y2 * 4, x1 * 4
                 bbox = 55 + x1, 162 + y1, x2 - x1, y2 - y1
                 imgBackground = cvzone.cornerRect(imgBackground, bbox, rt=0)
                 id = studentIds[matchIndex]
+
+                # Logging attendance
+                log_file_path = os.path.join("AttendanceLogs", f"{id}_attendance_log.txt")
+
+                if os.path.exists(log_file_path):
+                    with open(log_file_path, "r") as f:
+                        lines = f.readlines()
+                        last_line = lines[-1].strip() if lines else ""
+                        last_date = last_line.split(",")[0] if last_line else ""
+
+                    current_date = datetime.now().strftime("%Y-%m-%d")
+
+                    if last_date == current_date:
+                        print(f"Attendance for {id} has already been marked for today.")
+                    else:
+                        with open(log_file_path, "a") as f:
+                            f.write(f"{current_date}, {datetime.now().strftime('%H:%M:%S')}\n")
+                            print(f"Attendance marked for {id} on {current_date}.")
+                else:
+                    with open(log_file_path, "w") as f:
+                        current_date = datetime.now().strftime("%Y-%m-%d")
+                        f.write(f"{current_date}, {datetime.now().strftime('%H:%M:%S')}\n")
+                        print(f"Attendance marked for {id} on {current_date}.")
+
                 if counter == 0:
                     cvzone.putTextRect(imgBackground, "Loading", (275, 400))
                     cv2.imshow("Face Attendance", imgBackground)
                     cv2.waitKey(1)
                     counter = 1
                     modeType = 1
+
 
         if counter != 0:
 
@@ -97,13 +115,27 @@ while True:
                 # Update data of attendance
                 datetimeObject = datetime.strptime(studentInfo['last_attendance_time'],
                                                    "%Y-%m-%d %H:%M:%S")
-                secondsElapsed = (datetime.now() - datetimeObject).total_seconds()
+                now = datetime.now()
+                secondsElapsed = (now - datetimeObject).total_seconds()
                 print(secondsElapsed)
+
+                # Check if the attendance record exists for the current date
+                date_str = now.strftime("%Y-%m-%d")
+                attendance_record_path = f"AttendanceLogs/{date_str}.txt"
+
+                if not os.path.exists(attendance_record_path):
+                    with open(attendance_record_path, 'w') as f:
+                        f.write(f"Attendance Log for {date_str}:\n")
+
+                # Update the attendance record for the current date
+                with open(attendance_record_path, 'a') as f:
+                    f.write(f"ID: {id}, Name: {studentInfo['name']}, Time: {now.strftime('%H:%M:%S')}\n")
+
                 if secondsElapsed > 30:
                     ref = db.reference(f'Students/{id}')
                     studentInfo['total_attendance'] += 1
                     ref.child('total_attendance').set(studentInfo['total_attendance'])
-                    ref.child('last_attendance_time').set(datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+                    ref.child('last_attendance_time').set(now.strftime("%Y-%m-%d %H:%M:%S"))
                 else:
                     modeType = 3
                     counter = 0
